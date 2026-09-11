@@ -105,7 +105,10 @@ async function loadAnalytics(){
 
 async function loadProjects(){
 
-  const ps = await j("/api/projects");
+  const q = document.getElementById("q").value;
+  const sector = document.getElementById("sector").value;
+
+  const ps = await j("/api/projects?" + new URLSearchParams({q, sector}));
 
   const rows = ps.slice(0, 30).map(p => `
     <tr onclick="select('${p.project_code}')"
@@ -134,7 +137,7 @@ async function loadProjects(){
     </tr>
   `).join("");
 
-  document.querySelector("#projects tbody").innerHTML =
+  document.getElementById("rows").innerHTML =
     rows || `
       <tr>
         <td colspan="6">
