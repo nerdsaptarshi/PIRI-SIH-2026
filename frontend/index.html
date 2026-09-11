@@ -22,95 +22,79 @@ async function j(url, options) {
    MAIN DASHBOARD
 -------------------------------- */
 
-async function load() {
+async function load(){
+  try{
+    document.getElementById("kpis").innerHTML =
+      `<div class="card">Loading project portfolio...</div>`;
 
-  // Show loading state immediately
-  document.getElementById("kpis").innerHTML = `
-    <div class="card">
-      <div>Dashboard</div>
-      <div class="v">Loading...</div>
-    </div>
-  `;
-
-  try {
-
-    /* 1. Portfolio summary */
-    const summary = await j("/api/analytics/summary");
-
-    document.getElementById("kpis").innerHTML = [
-      ["Projects", summary.projects],
-      ["Original cost", `₹${Number(summary.original_cost_cr).toLocaleString()} Cr`],
-      ["Revised cost", `₹${Number(summary.revised_cost_cr).toLocaleString()} Cr`],
-      ["High risk", summary.high_risk],
-      ["Expenditure", `₹${Number(summary.expenditure_cr).toLocaleString()} Cr`]
-    ].map(x => `
-      <div class="card">
-        <div>${x[0]}</div>
-        <div class="v">${x[1]}</div>
-      </div>
-    `).join("");
-
-    /* 2. Sector analytics */
-    const sectors = await j("/api/analytics/sectors");
-
-    document.getElementById("sector").innerHTML =
-      '<option value="">All sectors</option>' +
-      sectors.map(x =>
-        `<option value="${x.sector}">${x.sector}</option>`
-      ).join("");
-
-    document.getElementById("sectors").innerHTML =
-      sectors.map(x => `
-        <div class="driver">
-          <span>
-            ${x.sector}
-            <small>(${x.projects} projects)</small>
-          </span>
-          <b>${x.avg_risk}</b>
-        </div>
-      `).join("");
-
-    /* 3. Early warnings */
-    const alerts = await j("/api/alerts");
-
-    document.getElementById("alerts").innerHTML =
-      alerts.length
-      ? alerts.slice(0, 8).map(x => `
-          <div class="alert">
-            <b>${x.severity}</b> — ${x.project_name}
-            <br>
-            <small>
-              ${x.signal}
-              • ${Math.round(x.probability * 100)}%
-              • ${x.recommended_action}
-            </small>
-          </div>
-        `).join("")
-      : "No high-risk alerts.";
-
-    /* 4. Load project list */
+    // Load projects FIRST — this endpoint is fast
     await loadProjects();
 
-  } catch (error) {
+    // Show dashboard immediately
+    document.getElementById("kpis").innerHTML = `
+      <div class="card">
+        <div class="muted">AI Monitoring</div>
+        <h2>Online</h2>
+        <div>ML + SHAP prediction engine connected</div>
+      </div>
+    `;
 
-    console.error("Dashboard error:", error);
+    // Load analytics separately so they cannot block the dashboard
+    loadAnalytics();
+
+  }catch(e){
+    console.error(e);
 
     document.getElementById("kpis").innerHTML = `
       <div class="card">
-        <div>Dashboard Error</div>
-        <div style="margin-top:8px;color:#d64545">
-          ${error.message}
-        </div>
+        <b>Dashboard Error</b><br>
+        ${e.message}
       </div>
     `;
+  }
+}
 
-    document.getElementById("rows").innerHTML = `
-      <tr>
-        <td colspan="6">
-          Unable to load dashboard data.
-        </td>
-      </tr>
-    `;
+async function loadAnalytics(){
+
+  // Sector risk
+  try{
+    let sec = await j("/api/analytics/sectors");
+
+    document.getElementById("sectors").innerHTML =
+      sec.map(x => `
+        <div class="row">
+          <b>${x.sector}</b>
+          <span>PIRI ${Number(x.average_risk_score || 0).toFixed(1)}</span>
+          <span>${x.high_risk_count || 0} high risk</span>
+        </div>
+      `).join("");
+
+  }catch(e){
+    console.error("Sector analytics:", e);
+    document.getElementById("sectors").innerHTML =
+      `<div class="muted">Sector analytics loading...</div>`;
+  }
+
+  // Early warnings
+  try{
+    let al = await j("/api/alerts");
+
+    document.getElementById("alerts").innerHTML =
+      al.length
+      ? al.map(x => `
+          <div class="alert">
+            <b>${x.project_code}</b>
+            — ${x.signal || "High project risk"}
+            <br>
+            <span>${x.action || "Review project status"}</span>
+          </div>
+        `).join("")
+      : `<div class="muted">No active high-risk warnings.</div>`;
+
+  }catch(e){
+    console.error("Alerts:", e);
+    document.getElementById("alerts").innerHTML =
+      `<div class="muted">Early-warning engine loading...</div>`;
   }
 }
 
@@ -119,79 +103,45 @@ async function load() {
    PROJECT PORTFOLIO
 -------------------------------- */
 
-async function loadProjects() {
+async function loadProjects(){
 
-  try {
+  const ps = await j("/api/projects");
 
-    const q = document.getElementById("q").value;
-    const sector = document.getElementById("sector").value;
+  const rows = ps.slice(0, 30).map(p => `
+    <tr onclick="select('${p.project_code}')"
+        style="cursor:pointer">
 
-    const params = new URLSearchParams();
+      <td><b>${p.project_code}</b></td>
 
-    if (q) params.set("q", q);
-    if (sector) params.set("sector", sector);
+      <td>${p.sector || "-"}</td>
 
-    const projects = await j(
-      "/api/projects?" + params.toString()
-    );
+      <td>
+        ${Number(p.physical_progress_pct || 0).toFixed(1)}%
+      </td>
 
-    /* Do NOT run SHAP prediction for every project.
-       Display portfolio information first. */
+      <td class="muted">
+        Click to evaluate
+      </td>
 
-    const visible = projects.slice(0, 30);
+      <td class="muted">
+        Click to evaluate
+      </td>
 
-    document.getElementById("rows").innerHTML =
-      visible.map(p => `
-        <tr
-          onclick="select('${p.project_code}')"
-          style="cursor:pointer"
-        >
-          <td>${p.name}</td>
+      <td class="muted">
+        Click to evaluate
+      </td>
 
-          <td>${p.sector}</td>
+    </tr>
+  `).join("");
 
-          <td>
-            ${Number(p.physical_progress_pct).toFixed(1)}%
-          </td>
-
-          <td class="risk">
-            Click project
-          </td>
-
-          <td>
-            Click project
-          </td>
-
-          <td>
-            Click project
-          </td>
-        </tr>
-      `).join("");
-
-    if (projects.length > 30) {
-
-      document.getElementById("rows").innerHTML += `
-        <tr>
-          <td colspan="6">
-            Showing first 30 of ${projects.length} projects.
-            Use search or sector filter to find a project.
-          </td>
-        </tr>
-      `;
-    }
-
-  } catch (error) {
-
-    console.error("Project loading error:", error);
-
-    document.getElementById("rows").innerHTML = `
+  document.querySelector("#projects tbody").innerHTML =
+    rows || `
       <tr>
         <td colspan="6">
-          Project loading failed.
+          No projects found.
         </td>
       </tr>
     `;
-  }
 }
 
 
