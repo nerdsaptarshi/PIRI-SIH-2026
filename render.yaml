@@ -3,22 +3,27 @@ services:
     name: piri-ai-monitoring
     runtime: python
     plan: free
+
     buildCommand: pip install --no-cache-dir -r requirements.txt
-    preDeployCommand: python scripts/render_bootstrap.py
-    startCommand: uvicorn backend.main:app --host 0.0.0.0 --port $PORT --proxy-headers
+
+    startCommand: python scripts/render_bootstrap.py && uvicorn backend.main:app --host 0.0.0.0 --port $PORT --proxy-headers
+
     healthCheckPath: /health
+
     envVars:
       - key: DATABASE_URL
         fromDatabase:
           name: piri-postgres
           property: connectionString
+
       - key: MODEL_DIR
         value: /tmp/piri-models
+
       - key: PAIMANA_API_URL
         sync: false
+
       - key: PAIMANA_API_TOKEN
         sync: false
-
 
 databases:
   - name: piri-postgres
