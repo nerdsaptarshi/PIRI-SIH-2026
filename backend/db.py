@@ -1,6 +1,14 @@
 from sqlalchemy import create_engine, Column, Integer, String, Float, Date, Text
 from sqlalchemy.orm import declarative_base, sessionmaker
-from .config import DB_URL
+
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./piri.db")
+
+if DATABASE_URL.startswith("postgresql://"):
+    DATABASE_URL = DATABASE_URL.replace(
+        "postgresql://",
+        "postgresql+psycopg://",
+        1
+    )
 
 connect_args = {"check_same_thread": False} if DB_URL.startswith("sqlite") else {}
 engine = create_engine(DB_URL, connect_args=connect_args)
