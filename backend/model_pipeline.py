@@ -68,19 +68,75 @@ def load_models():
     return {x:joblib.load(MODEL_DIR/f"{x}.joblib") for x in files}
 
 def explain_project(models, row: pd.DataFrame):
-    # SHAP on the fitted RandomForest after preprocessing.
+    """
+    Generate project-specific SHAP drivers.
+
+    Handles both older SHAP list output and newer NumPy-array
+    output formats for binary RandomForest classifiers.
+    """
     import shap
-    drivers=[]
-    for key,label in [("cost","Cost-overrun"),("delay","Schedule-delay")]:
-        pipe=models[key]
-        Xt=pipe.named_steps["prep"].transform(row[FEATURES])
-        model=pipe.named_steps["model"]
-        explainer=shap.TreeExplainer(model)
-        sv=explainer.shap_values(Xt)
-        vals=sv[1][0] if isinstance(sv,list) else sv[0]
-        names=list(pipe.named_steps["prep"].get_feature_names_out())
-        order=np.argsort(np.abs(vals))[::-1][:6]
-        drivers += [{"model":label,"feature":names[i].replace("num__","").replace("cat__",""),"impact":round(float(vals[i]),4)} for i in order]
+
+    drivers = []
+
+    for key, label in [("cost", "Cost-overrun"), ("delay", "Schedule-delay")]:
+        try:
+            pipe = models[key]
+
+            # Transform the project using the same preprocessing used during training
+            Xt = pipe.named_steps["prep"].transform(row[FEATURES])
+
+            # Underlying RandomForest model
+            model = pipe.named_steps["model"]
+
+            # SHAP explanation
+            explainer = shap.TreeExplainer(model)
+            sv = explainer.shap_values(Xt)
+
+            # SHAP has different return formats across versions.
+            if isinstance(sv, list):
+                # Older SHAP versions:
+                # [class_0_values, class_1_values]
+                vals = np.asarray(sv[1])[0]
+            else:
+                arr = np.asarray(sv)
+
+                if arr.ndim == 3:
+                    # Newer SHAP:
+                    # (samples, features, classes)
+                    vals = arr[0, :, 1]
+                elif arr.ndim == 2:
+                    # (samples, features)
+                    vals = arr[0]
+                else:
+                    vals = arr.reshape(-1)
+
+            names = list(
+                pipe.named_steps["prep"].get_feature_names_out()
+            )
+
+            # Make absolutely sure feature names and SHAP values align
+            n = min(len(names), len(vals))
+
+            vals = vals[:n]
+            names = names[:n]
+
+            order = np.argsort(np.abs(vals))[::-1][:6]
+
+            for i in order:
+                drivers.append({
+                    "model": label,
+                    "feature": (
+                        names[i]
+                        .replace("num__", "")
+                        .replace("cat__", "")
+                    ),
+                    "impact": round(float(vals[i]), 4)
+                })
+
+        except Exception as exc:
+            # Do not let SHAP failure break the entire prediction API.
+            print(f"SHAP explanation failed for {label}: {exc}")
+
     return drivers
 
 def predict(models,row:pd.DataFrame):
