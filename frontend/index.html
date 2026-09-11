@@ -10,7 +10,43 @@ body{margin:0;font:14px Segoe UI,Arial;background:#f4f7fb;color:#182433}header{b
 const API=location.origin;let selected=null;
 async function j(u,o){let r=await fetch(API+u,o);if(!r.ok)throw Error(await r.text());return r.json()}
 async function load(){try{let s=await j("/api/analytics/summary");document.getElementById("kpis").innerHTML=[["Projects",s.projects],["Original cost",`₹${s.original_cost_cr.toLocaleString()} Cr`],["Revised cost",`₹${s.revised_cost_cr.toLocaleString()} Cr`],["High risk",s.high_risk],["Expenditure",`₹${s.expenditure_cr.toLocaleString()} Cr`]].map(x=>`<div class="card"><div>${x[0]}</div><div class="v">${x[1]}</div></div>`).join("");let sec=await j("/api/analytics/sectors");document.getElementById("sector").innerHTML='<option value="">All sectors</option>'+sec.map(x=>`<option>${x.sector}</option>`).join("");document.getElementById("sectors").innerHTML=sec.map(x=>`<div class="driver"><span>${x.sector}</span><b>${x.avg_risk}</b></div>`).join("");let al=await j("/api/alerts");document.getElementById("alerts").innerHTML=al.slice(0,8).map(x=>`<div class="alert"><b>${x.severity}</b> — ${x.project_name}<br><small>${x.signal} • ${Math.round(x.probability*100)}% • ${x.recommended_action}</small></div>`).join("")||"No high-risk alerts.";await loadProjects()}catch(e){document.getElementById("kpis").innerHTML=`<div class="card">Backend unavailable. Start FastAPI on port 8000.</div>`}}
-async function loadProjects(){let q=document.getElementById("q").value,sector=document.getElementById("sector").value;let ps=await j("/api/projects?"+new URLSearchParams({q,sector}));document.getElementById("rows").innerHTML=await Promise.all(ps.map(async p=>{let x=await j(`/api/projects/${p.project_code}/prediction`);return `<tr onclick="select('${p.project_code}')"><td>${p.name}</td><td>${p.sector}</td><td>${p.physical_progress_pct.toFixed(1)}%</td><td class="risk ${x.risk_level}">${x.risk_score}</td><td>${Math.round(x.cost_overrun_probability*100)}%</td><td>${Math.round(x.delay_probability*100)}%</td></tr>`})).then(x=>x.join(""))}
+async function loadProjects(){
+  try {
+    let q=document.getElementById("q").value;
+    let sector=document.getElementById("sector").value;
+
+    let ps=await j("/api/projects?"+new URLSearchParams({q,sector}));
+
+    // Show projects immediately instead of requesting 120 SHAP predictions at once.
+    let visible=ps.slice(0,30);
+
+    document.getElementById("rows").innerHTML=visible.map(p=>`
+      <tr onclick="select('${p.project_code}')" style="cursor:pointer">
+        <td>${p.name}</td>
+        <td>${p.sector}</td>
+        <td>${Number(p.physical_progress_pct).toFixed(1)}%</td>
+        <td class="risk">—</td>
+        <td>Click project</td>
+        <td>Click project</td>
+      </tr>
+    `).join("");
+
+    if(ps.length>30){
+      document.getElementById("rows").innerHTML += `
+        <tr>
+          <td colspan="6">
+            Showing first 30 of ${ps.length} projects.
+            Search or filter by sector to find a project.
+          </td>
+        </tr>
+      `;
+    }
+
+  } catch(e) {
+    document.getElementById("rows").innerHTML =
+      `<tr><td colspan="6">Unable to load projects: ${e.message}</td></tr>`;
+  }
+}
 async function select(code){selected=code;let p=await j(`/api/projects/${code}`),x=await j(`/api/projects/${code}/prediction`);document.getElementById("detail").innerHTML=`<h3>${p.name} <small>(${code})</small></h3><p><b>PIRI ${x.risk_score}</b> — ${x.risk_level} risk • Cost overrun ${Math.round(x.cost_overrun_probability*100)}% • Delay ${Math.round(x.delay_probability*100)}%</p><h4>SHAP-style model drivers</h4>${x.top_drivers.map(d=>`<div class="driver"><span>${d.model}: ${d.feature}</span><b>${d.impact}</b></div>`).join("")}<p><small>Model version: ${x.model_version}. SHAP values explain model contribution; they do not establish causality.</small></p>`}
 async function ask(){let i=document.getElementById("chat"),t=i.value.trim();if(!t)return;let l=document.getElementById("chatlog");l.innerHTML+=`<div class="msg user">${t}</div>`;let r=await j("/api/assistant",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({message:t,project_code:selected})});l.innerHTML+=`<div class="msg bot">${r.answer}<br><small>${r.evidence.join(" • ")}</small></div>`;i.value=""}
 load();
