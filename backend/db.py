@@ -1,3 +1,4 @@
+import os
 from sqlalchemy import create_engine, Column, Integer, String, Float, Date, Text
 from sqlalchemy.orm import declarative_base, sessionmaker
 
