@@ -56,48 +56,158 @@ async function load(){
 
 async function loadAnalytics(){
 
-  // Sector risk
-  try{
-    let sec = await j("/api/analytics/sectors");
+  /*
+   * -----------------------------------------
+   * SECTOR RISK
+   * -----------------------------------------
+   */
 
-    document.getElementById("sectors").innerHTML =
-      sec.map(x => `
-        <div class="row">
-          <b>${x.sector}</b>
-          <span>PIRI ${Number(x.average_risk_score || 0).toFixed(1)}</span>
-          <span>${x.high_risk_count || 0} high risk</span>
+  const sectorBox = document.getElementById("sectors");
+
+  sectorBox.innerHTML = `
+    <div class="muted">
+      Calculating sector risk...
+    </div>
+  `;
+
+  (async function(){
+
+    try {
+
+      const sec = await j("/api/analytics/sectors");
+
+      if (!sec || !sec.length) {
+        sectorBox.innerHTML = `
+          <div class="muted">
+            No sector risk data available.
+          </div>
+        `;
+        return;
+      }
+
+      sectorBox.innerHTML = sec.map(x => `
+        <div class="driver">
+
+          <span>
+            <b>${x.sector}</b>
+          </span>
+
+          <span>
+            PIRI ${Number(x.avg_risk || 0).toFixed(1)}
+            &nbsp; | &nbsp;
+            ${x.high_risk || 0} high risk
+          </span>
+
         </div>
       `).join("");
 
-  }catch(e){
-    console.error("Sector analytics:", e);
-    document.getElementById("sectors").innerHTML =
-      `<div class="muted">Sector analytics loading...</div>`;
-  }
+    } catch (e) {
 
-  // Early warnings
-  try{
-    let al = await j("/api/alerts");
+      console.error("Sector Risk Error:", e);
 
-    document.getElementById("alerts").innerHTML =
-      al.length
-      ? al.map(x => `
-          <div class="alert">
-            <b>${x.project_code}</b>
-            — ${x.signal || "High project risk"}
-            <br>
-            <span>${x.action || "Review project status"}</span>
+      sectorBox.innerHTML = `
+        <div style="color:#d64545">
+          Unable to load sector risk.
+        </div>
+      `;
+
+    }
+
+  })();
+
+
+  /*
+   * -----------------------------------------
+   * LIVE EARLY WARNINGS
+   * -----------------------------------------
+   *
+   * IMPORTANT:
+   * This runs independently from Sector Risk.
+   * Therefore Sector Risk cannot block alerts.
+   */
+
+  const alertBox = document.getElementById("alerts");
+
+  alertBox.innerHTML = `
+    <div class="muted">
+      Loading early warnings...
+    </div>
+  `;
+
+  (async function(){
+
+    try {
+
+      console.log("Loading early warnings...");
+
+      const alerts = await j("/api/alerts");
+
+      console.log("Early warnings received:", alerts);
+
+      if (!alerts || !alerts.length) {
+
+        alertBox.innerHTML = `
+          <div class="muted">
+            No active high-risk warnings.
           </div>
-        `).join("")
-      : `<div class="muted">No active high-risk warnings.</div>`;
+        `;
 
-  }catch(e){
-    console.error("Alerts:", e);
-    document.getElementById("alerts").innerHTML =
-      `<div class="muted">Early-warning engine loading...</div>`;
-  }
+        return;
+      }
+
+      alertBox.innerHTML = alerts.map(x => `
+
+        <div class="alert">
+
+          <div>
+            <b>${x.severity || "HIGH"}</b>
+            —
+            <b>${x.project_name || x.project_code}</b>
+          </div>
+
+          <div style="margin-top:5px">
+            ${x.signal || "High project risk"}
+          </div>
+
+          <div style="margin-top:5px">
+            Risk probability:
+            <b>
+              ${Math.round(
+                Number(x.probability || 0) * 100
+              )}%
+            </b>
+          </div>
+
+          <div style="margin-top:5px">
+            <b>Recommended action:</b>
+            ${x.recommended_action || "Review project status"}
+          </div>
+
+        </div>
+
+      `).join("");
+
+    } catch (e) {
+
+      console.error("Early Warning Error:", e);
+
+      alertBox.innerHTML = `
+        <div style="color:#d64545">
+
+          <b>Early-warning engine error</b>
+
+          <br>
+
+          ${e.message}
+
+        </div>
+      `;
+
+    }
+
+  })();
+
 }
-
 
 /* -------------------------------
    PROJECT PORTFOLIO
