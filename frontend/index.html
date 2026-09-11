@@ -7,47 +7,350 @@ body{margin:0;font:14px Segoe UI,Arial;background:#f4f7fb;color:#182433}header{b
 <div><div class="card"><h3>Sector Risk</h3><div id="sectors"></div></div><div class="card" style="margin-top:14px"><h3>Live Early Warnings</h3><div id="alerts"></div></div></div></div>
 <div class="grid"><div class="card"><h3>Selected Project — Explainable AI</h3><div id="detail">Click a project to load its live prediction and SHAP drivers.</div></div><div class="card"><h3>Project Intelligence Assistant</h3><div class="chat" id="chatlog"><div class="msg bot">Ask me about a project after selecting it.</div></div><div class="chatbox"><input id="chat" placeholder="Ask a grounded question…" onkeydown="if(event.key==='Enter')ask()"><button onclick="ask()">Ask</button></div></div></div></div>
 <script>
-const API=location.origin;let selected=null;
-async function j(u,o){let r=await fetch(API+u,o);if(!r.ok)throw Error(await r.text());return r.json()}
-async function load(){try{let s=await j("/api/analytics/summary");document.getElementById("kpis").innerHTML=[["Projects",s.projects],["Original cost",`₹${s.original_cost_cr.toLocaleString()} Cr`],["Revised cost",`₹${s.revised_cost_cr.toLocaleString()} Cr`],["High risk",s.high_risk],["Expenditure",`₹${s.expenditure_cr.toLocaleString()} Cr`]].map(x=>`<div class="card"><div>${x[0]}</div><div class="v">${x[1]}</div></div>`).join("");let sec=await j("/api/analytics/sectors");document.getElementById("sector").innerHTML='<option value="">All sectors</option>'+sec.map(x=>`<option>${x.sector}</option>`).join("");document.getElementById("sectors").innerHTML=sec.map(x=>`<div class="driver"><span>${x.sector}</span><b>${x.avg_risk}</b></div>`).join("");let al=await j("/api/alerts");document.getElementById("alerts").innerHTML=al.slice(0,8).map(x=>`<div class="alert"><b>${x.severity}</b> — ${x.project_name}<br><small>${x.signal} • ${Math.round(x.probability*100)}% • ${x.recommended_action}</small></div>`).join("")||"No high-risk alerts.";await loadProjects()}catch(e){document.getElementById("kpis").innerHTML=`<div class="card">Backend unavailable. Start FastAPI on port 8000.</div>`}}
-async function loadProjects(){
+const API = location.origin;
+let selected = null;
+
+async function j(url, options) {
+  const response = await fetch(API + url, options);
+  if (!response.ok) {
+    throw new Error(await response.text());
+  }
+  return response.json();
+}
+
+/* -------------------------------
+   MAIN DASHBOARD
+-------------------------------- */
+
+async function load() {
+
+  // Show loading state immediately
+  document.getElementById("kpis").innerHTML = `
+    <div class="card">
+      <div>Dashboard</div>
+      <div class="v">Loading...</div>
+    </div>
+  `;
+
   try {
-    let q=document.getElementById("q").value;
-    let sector=document.getElementById("sector").value;
 
-    let ps=await j("/api/projects?"+new URLSearchParams({q,sector}));
+    /* 1. Portfolio summary */
+    const summary = await j("/api/analytics/summary");
 
-    // Show projects immediately instead of requesting 120 SHAP predictions at once.
-    let visible=ps.slice(0,30);
-
-    document.getElementById("rows").innerHTML=visible.map(p=>`
-      <tr onclick="select('${p.project_code}')" style="cursor:pointer">
-        <td>${p.name}</td>
-        <td>${p.sector}</td>
-        <td>${Number(p.physical_progress_pct).toFixed(1)}%</td>
-        <td class="risk">—</td>
-        <td>Click project</td>
-        <td>Click project</td>
-      </tr>
+    document.getElementById("kpis").innerHTML = [
+      ["Projects", summary.projects],
+      ["Original cost", `₹${Number(summary.original_cost_cr).toLocaleString()} Cr`],
+      ["Revised cost", `₹${Number(summary.revised_cost_cr).toLocaleString()} Cr`],
+      ["High risk", summary.high_risk],
+      ["Expenditure", `₹${Number(summary.expenditure_cr).toLocaleString()} Cr`]
+    ].map(x => `
+      <div class="card">
+        <div>${x[0]}</div>
+        <div class="v">${x[1]}</div>
+      </div>
     `).join("");
 
-    if(ps.length>30){
+    /* 2. Sector analytics */
+    const sectors = await j("/api/analytics/sectors");
+
+    document.getElementById("sector").innerHTML =
+      '<option value="">All sectors</option>' +
+      sectors.map(x =>
+        `<option value="${x.sector}">${x.sector}</option>`
+      ).join("");
+
+    document.getElementById("sectors").innerHTML =
+      sectors.map(x => `
+        <div class="driver">
+          <span>
+            ${x.sector}
+            <small>(${x.projects} projects)</small>
+          </span>
+          <b>${x.avg_risk}</b>
+        </div>
+      `).join("");
+
+    /* 3. Early warnings */
+    const alerts = await j("/api/alerts");
+
+    document.getElementById("alerts").innerHTML =
+      alerts.length
+      ? alerts.slice(0, 8).map(x => `
+          <div class="alert">
+            <b>${x.severity}</b> — ${x.project_name}
+            <br>
+            <small>
+              ${x.signal}
+              • ${Math.round(x.probability * 100)}%
+              • ${x.recommended_action}
+            </small>
+          </div>
+        `).join("")
+      : "No high-risk alerts.";
+
+    /* 4. Load project list */
+    await loadProjects();
+
+  } catch (error) {
+
+    console.error("Dashboard error:", error);
+
+    document.getElementById("kpis").innerHTML = `
+      <div class="card">
+        <div>Dashboard Error</div>
+        <div style="margin-top:8px;color:#d64545">
+          ${error.message}
+        </div>
+      </div>
+    `;
+
+    document.getElementById("rows").innerHTML = `
+      <tr>
+        <td colspan="6">
+          Unable to load dashboard data.
+        </td>
+      </tr>
+    `;
+  }
+}
+
+
+/* -------------------------------
+   PROJECT PORTFOLIO
+-------------------------------- */
+
+async function loadProjects() {
+
+  try {
+
+    const q = document.getElementById("q").value;
+    const sector = document.getElementById("sector").value;
+
+    const params = new URLSearchParams();
+
+    if (q) params.set("q", q);
+    if (sector) params.set("sector", sector);
+
+    const projects = await j(
+      "/api/projects?" + params.toString()
+    );
+
+    /* Do NOT run SHAP prediction for every project.
+       Display portfolio information first. */
+
+    const visible = projects.slice(0, 30);
+
+    document.getElementById("rows").innerHTML =
+      visible.map(p => `
+        <tr
+          onclick="select('${p.project_code}')"
+          style="cursor:pointer"
+        >
+          <td>${p.name}</td>
+
+          <td>${p.sector}</td>
+
+          <td>
+            ${Number(p.physical_progress_pct).toFixed(1)}%
+          </td>
+
+          <td class="risk">
+            Click project
+          </td>
+
+          <td>
+            Click project
+          </td>
+
+          <td>
+            Click project
+          </td>
+        </tr>
+      `).join("");
+
+    if (projects.length > 30) {
+
       document.getElementById("rows").innerHTML += `
         <tr>
           <td colspan="6">
-            Showing first 30 of ${ps.length} projects.
-            Search or filter by sector to find a project.
+            Showing first 30 of ${projects.length} projects.
+            Use search or sector filter to find a project.
           </td>
         </tr>
       `;
     }
 
-  } catch(e) {
-    document.getElementById("rows").innerHTML =
-      `<tr><td colspan="6">Unable to load projects: ${e.message}</td></tr>`;
+  } catch (error) {
+
+    console.error("Project loading error:", error);
+
+    document.getElementById("rows").innerHTML = `
+      <tr>
+        <td colspan="6">
+          Project loading failed.
+        </td>
+      </tr>
+    `;
   }
 }
-async function select(code){selected=code;let p=await j(`/api/projects/${code}`),x=await j(`/api/projects/${code}/prediction`);document.getElementById("detail").innerHTML=`<h3>${p.name} <small>(${code})</small></h3><p><b>PIRI ${x.risk_score}</b> — ${x.risk_level} risk • Cost overrun ${Math.round(x.cost_overrun_probability*100)}% • Delay ${Math.round(x.delay_probability*100)}%</p><h4>SHAP-style model drivers</h4>${x.top_drivers.map(d=>`<div class="driver"><span>${d.model}: ${d.feature}</span><b>${d.impact}</b></div>`).join("")}<p><small>Model version: ${x.model_version}. SHAP values explain model contribution; they do not establish causality.</small></p>`}
-async function ask(){let i=document.getElementById("chat"),t=i.value.trim();if(!t)return;let l=document.getElementById("chatlog");l.innerHTML+=`<div class="msg user">${t}</div>`;let r=await j("/api/assistant",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({message:t,project_code:selected})});l.innerHTML+=`<div class="msg bot">${r.answer}<br><small>${r.evidence.join(" • ")}</small></div>`;i.value=""}
+
+
+/* -------------------------------
+   SELECT PROJECT
+-------------------------------- */
+
+async function select(code) {
+
+  try {
+
+    selected = code;
+
+    document.getElementById("detail").innerHTML = `
+      <p>Loading AI prediction for ${code}...</p>
+    `;
+
+    /* Project information */
+    const project = await j(
+      `/api/projects/${code}`
+    );
+
+    /* AI prediction + SHAP */
+    const prediction = await j(
+      `/api/projects/${code}/prediction`
+    );
+
+    document.getElementById("detail").innerHTML = `
+      <h3>
+        ${project.name}
+        <small>(${code})</small>
+      </h3>
+
+      <p>
+        <b>PIRI ${prediction.risk_score}</b>
+        —
+        ${prediction.risk_level} risk
+      </p>
+
+      <p>
+        Cost-overrun probability:
+        <b>${Math.round(
+          prediction.cost_overrun_probability * 100
+        )}%</b>
+      </p>
+
+      <p>
+        Schedule-delay probability:
+        <b>${Math.round(
+          prediction.delay_probability * 100
+        )}%</b>
+      </p>
+
+      <h4>
+        SHAP model drivers
+      </h4>
+
+      ${
+        prediction.top_drivers.map(d => `
+          <div class="driver">
+            <span>
+              ${d.model}: ${d.feature}
+            </span>
+            <b>${d.impact}</b>
+          </div>
+        `).join("")
+      }
+
+      <p>
+        <small>
+          Model version:
+          ${prediction.model_version}
+          <br>
+          SHAP values explain model contribution;
+          they do not establish causality.
+        </small>
+      </p>
+    `;
+
+  } catch (error) {
+
+    console.error("Project prediction error:", error);
+
+    document.getElementById("detail").innerHTML = `
+      <p style="color:#d64545">
+        Unable to load prediction for ${code}.
+        <br>
+        ${error.message}
+      </p>
+    `;
+  }
+}
+
+
+/* -------------------------------
+   PROJECT ASSISTANT
+-------------------------------- */
+
+async function ask() {
+
+  const input = document.getElementById("chat");
+  const text = input.value.trim();
+
+  if (!text) return;
+
+  const log = document.getElementById("chatlog");
+
+  log.innerHTML += `
+    <div class="msg user">
+      ${text}
+    </div>
+  `;
+
+  input.value = "";
+
+  try {
+
+    const response = await j(
+      "/api/assistant",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          message: text,
+          project_code: selected
+        })
+      }
+    );
+
+    log.innerHTML += `
+      <div class="msg bot">
+        ${response.answer}
+        <br>
+        <small>
+          ${response.evidence.join(" • ")}
+        </small>
+      </div>
+    `;
+
+  } catch (error) {
+
+    log.innerHTML += `
+      <div class="msg bot">
+        Assistant error:
+        ${error.message}
+      </div>
+    `;
+  }
+
+  log.scrollTop = log.scrollHeight;
+}
+
+
+/* -------------------------------
+   START
+-------------------------------- */
+
 load();
-</script></body></html>
+
+</script>
