@@ -102,36 +102,70 @@ async function loadAnalytics(){
 /* -------------------------------
    PROJECT PORTFOLIO
 -------------------------------- */
-
 async function loadProjects(){
 
   const q = document.getElementById("q").value;
   const sector = document.getElementById("sector").value;
 
-  const ps = await j("/api/projects?" + new URLSearchParams({q, sector}));
+  const ps = await j(
+    "/api/projects?" + new URLSearchParams({q, sector})
+  );
 
   const rows = ps.slice(0, 30).map(p => `
-    <tr onclick="select('${p.project_code}')"
-        style="cursor:pointer">
+    <tr>
 
-      <td><b>${p.project_code}</b></td>
+      <td>
+        <b>${p.project_code}</b>
+      </td>
 
-      <td>${p.sector || "-"}</td>
+      <td>
+        ${p.sector || "-"}
+      </td>
 
       <td>
         ${Number(p.physical_progress_pct || 0).toFixed(1)}%
       </td>
 
-      <td class="muted">
-        Click to evaluate
+      <td>
+        <button
+          onclick="select('${p.project_code}')"
+          style="
+            padding:6px 12px;
+            border:0;
+            border-radius:6px;
+            cursor:pointer;
+          "
+        >
+          Evaluate
+        </button>
       </td>
 
-      <td class="muted">
-        Click to evaluate
+      <td>
+        <button
+          onclick="select('${p.project_code}')"
+          style="
+            padding:6px 12px;
+            border:0;
+            border-radius:6px;
+            cursor:pointer;
+          "
+        >
+          Evaluate
+        </button>
       </td>
 
-      <td class="muted">
-        Click to evaluate
+      <td>
+        <button
+          onclick="select('${p.project_code}')"
+          style="
+            padding:6px 12px;
+            border:0;
+            border-radius:6px;
+            cursor:pointer;
+          "
+        >
+          Evaluate
+        </button>
       </td>
 
     </tr>
@@ -147,96 +181,6 @@ async function loadProjects(){
     `;
 }
 
-
-/* -------------------------------
-   SELECT PROJECT
--------------------------------- */
-
-async function select(code) {
-
-  try {
-
-    selected = code;
-
-    document.getElementById("detail").innerHTML = `
-      <p>Loading AI prediction for ${code}...</p>
-    `;
-
-    /* Project information */
-    const project = await j(
-      `/api/projects/${code}`
-    );
-
-    /* AI prediction + SHAP */
-    const prediction = await j(
-      `/api/projects/${code}/prediction`
-    );
-
-    document.getElementById("detail").innerHTML = `
-      <h3>
-        ${project.name}
-        <small>(${code})</small>
-      </h3>
-
-      <p>
-        <b>PIRI ${prediction.risk_score}</b>
-        —
-        ${prediction.risk_level} risk
-      </p>
-
-      <p>
-        Cost-overrun probability:
-        <b>${Math.round(
-          prediction.cost_overrun_probability * 100
-        )}%</b>
-      </p>
-
-      <p>
-        Schedule-delay probability:
-        <b>${Math.round(
-          prediction.delay_probability * 100
-        )}%</b>
-      </p>
-
-      <h4>
-        SHAP model drivers
-      </h4>
-
-      ${
-        prediction.top_drivers.map(d => `
-          <div class="driver">
-            <span>
-              ${d.model}: ${d.feature}
-            </span>
-            <b>${d.impact}</b>
-          </div>
-        `).join("")
-      }
-
-      <p>
-        <small>
-          Model version:
-          ${prediction.model_version}
-          <br>
-          SHAP values explain model contribution;
-          they do not establish causality.
-        </small>
-      </p>
-    `;
-
-  } catch (error) {
-
-    console.error("Project prediction error:", error);
-
-    document.getElementById("detail").innerHTML = `
-      <p style="color:#d64545">
-        Unable to load prediction for ${code}.
-        <br>
-        ${error.message}
-      </p>
-    `;
-  }
-}
 
 
 /* -------------------------------
