@@ -104,81 +104,95 @@ async function loadAnalytics(){
 -------------------------------- */
 async function loadProjects(){
 
-  const q = document.getElementById("q").value;
-  const sector = document.getElementById("sector").value;
+  try {
 
-  const ps = await j(
-    "/api/projects?" + new URLSearchParams({q, sector})
-  );
+    const q = document.getElementById("q").value;
+    const sector = document.getElementById("sector").value;
 
-  const rows = ps.slice(0, 30).map(p => `
-    <tr>
+    const ps = await j(
+      "/api/projects?" + new URLSearchParams({q, sector})
+    );
 
-      <td>
-        <b>${p.project_code}</b>
-      </td>
-
-      <td>
-        ${p.sector || "-"}
-      </td>
-
-      <td>
-        ${Number(p.physical_progress_pct || 0).toFixed(1)}%
-      </td>
-
-      <td>
-        <button
-          onclick="select('${p.project_code}')"
-          style="
-            padding:6px 12px;
-            border:0;
-            border-radius:6px;
-            cursor:pointer;
-          "
-        >
-          Evaluate
-        </button>
-      </td>
-
-      <td>
-        <button
-          onclick="select('${p.project_code}')"
-          style="
-            padding:6px 12px;
-            border:0;
-            border-radius:6px;
-            cursor:pointer;
-          "
-        >
-          Evaluate
-        </button>
-      </td>
-
-      <td>
-        <button
-          onclick="select('${p.project_code}')"
-          style="
-            padding:6px 12px;
-            border:0;
-            border-radius:6px;
-            cursor:pointer;
-          "
-        >
-          Evaluate
-        </button>
-      </td>
-
-    </tr>
-  `).join("");
-
-  document.getElementById("rows").innerHTML =
-    rows || `
+    const rows = ps.slice(0, 30).map(p => `
       <tr>
-        <td colspan="6">
-          No projects found.
+
+        <td>
+          <b>${p.project_code}</b>
+        </td>
+
+        <td>
+          ${p.sector || "-"}
+        </td>
+
+        <td>
+          ${Number(p.physical_progress_pct || 0).toFixed(1)}%
+        </td>
+
+        <td>
+          <button
+            type="button"
+            class="evaluate-btn"
+            data-project="${p.project_code}">
+            Evaluate
+          </button>
+        </td>
+
+        <td class="muted">
+          —
+        </td>
+
+        <td class="muted">
+          —
+        </td>
+
+      </tr>
+    `).join("");
+
+    document.getElementById("rows").innerHTML =
+      rows || `
+        <tr>
+          <td colspan="6">
+            No projects found.
+          </td>
+        </tr>
+      `;
+
+    /*
+      Attach click handlers AFTER the buttons
+      have been inserted into the page.
+    */
+    document.querySelectorAll(".evaluate-btn").forEach(button => {
+
+      button.addEventListener("click", function(event) {
+
+        event.preventDefault();
+        event.stopPropagation();
+
+        const code = this.getAttribute("data-project");
+
+        console.log("Evaluating project:", code);
+
+        select(code);
+
+      });
+
+    });
+
+  } catch (error) {
+
+    console.error("Project loading error:", error);
+
+    document.getElementById("rows").innerHTML = `
+      <tr>
+        <td colspan="6" style="color:#d64545">
+          Unable to load projects.
+          <br>
+          ${error.message}
         </td>
       </tr>
     `;
+
+  }
 }
 
 
@@ -243,7 +257,147 @@ async function ask() {
   log.scrollTop = log.scrollHeight;
 }
 
+async function select(code) {
 
+  console.log("SELECT FUNCTION CALLED:", code);
+
+  const detail = document.getElementById("detail");
+
+  if (!detail) {
+    console.error("Detail element not found!");
+    return;
+  }
+
+  // Immediately show that the click worked
+  detail.innerHTML = `
+    <h3>Loading AI Prediction...</h3>
+    <p>
+      Evaluating project <b>${code}</b>
+    </p>
+    <p>
+      Running ML prediction and SHAP explainability...
+    </p>
+  `;
+
+  // Automatically move the user to the result
+  detail.scrollIntoView({
+    behavior: "smooth",
+    block: "center"
+  });
+
+  try {
+
+    selected = code;
+
+    console.log("Requesting project:", code);
+
+    const project = await j(
+      `/api/projects/${code}`
+    );
+
+    console.log("Project loaded:", project);
+
+    console.log("Requesting prediction:", code);
+
+    const prediction = await j(
+      `/api/projects/${code}/prediction`
+    );
+
+    console.log("Prediction loaded:", prediction);
+
+    detail.innerHTML = `
+      <h3>
+        ${project.name || "Infrastructure Project"}
+        <small>(${code})</small>
+      </h3>
+
+      <p>
+        <b style="font-size:22px">
+          PIRI ${prediction.risk_score}
+        </b>
+
+        —
+        <span class="${prediction.risk_level}">
+          ${prediction.risk_level} Risk
+        </span>
+      </p>
+
+      <p>
+        Cost-overrun probability:
+        <b>
+          ${Math.round(
+            prediction.cost_overrun_probability * 100
+          )}%
+        </b>
+      </p>
+
+      <p>
+        Schedule-delay probability:
+        <b>
+          ${Math.round(
+            prediction.delay_probability * 100
+          )}%
+        </b>
+      </p>
+
+      <h4>SHAP Model Drivers</h4>
+
+      ${
+        prediction.top_drivers &&
+        prediction.top_drivers.length
+        ?
+        prediction.top_drivers.map(d => `
+          <div class="driver">
+            <span>
+              ${d.model}: ${d.feature}
+            </span>
+
+            <b>
+              ${Number(d.impact).toFixed(4)}
+            </b>
+          </div>
+        `).join("")
+        :
+        `<p class="muted">
+          No SHAP drivers available.
+        </p>`
+      }
+
+      <p>
+        <small>
+          Model version:
+          ${prediction.model_version || "PIRI-RF"}
+          <br>
+          SHAP values explain model contribution;
+          they do not establish causality.
+        </small>
+      </p>
+    `;
+
+  } catch (error) {
+
+    console.error(
+      "PROJECT PREDICTION ERROR:",
+      error
+    );
+
+    detail.innerHTML = `
+      <h3 style="color:#d64545">
+        Prediction Error
+      </h3>
+
+      <p>
+        Unable to load prediction for
+        <b>${code}</b>
+      </p>
+
+      <p>
+        ${error.message}
+      </p>
+    `;
+
+  }
+}
 /* -------------------------------
    START
 -------------------------------- */
